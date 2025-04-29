@@ -1,0 +1,164 @@
+import tkinter as tk
+from tkinter import filedialog, messagebox
+from openpyxl import load_workbook
+from openpyxl.styles import numbers
+from datetime import datetime
+
+def load_template():
+    global template_path
+    filepath = filedialog.askopenfilename(
+        title="Select Excel Template",
+        filetypes=[("Excel files", "*.xlsx")]
+    )
+    if filepath:
+        template_path = filepath
+        template_label.config(text=f"Selected: {filepath.split('/')[-1]}")
+    return filepath
+
+def clear_template():
+    global template_path
+    template_path = None
+    template_label.config(text="No template selected")
+
+def fill_excel():
+    if not template_path:
+        messagebox.showerror("Error", "Please select an Excel template first!")
+        return
+
+    try:
+        workbook = load_workbook(template_path)
+        sheet = workbook.active
+
+        # Fill in the data
+        sheet['B2'] = naam_var.get()
+        sheet['B3'] = verstrekker_var.get()
+        sheet['B6'] = type_var.get()
+        
+        try:
+            sheet['B4'] = int(krediet_var.get())
+            sheet['B5'] = int(respijtperiode_var.get())
+            sheet['B7'] = int(id_var.get())
+            sheet['B8'] = int(code_var.get())
+            sheet['B9'] = int(betalingsvoorwaarde_var.get())
+            
+            jaarlijks_intrest = float(jaarlijks_intrest_var.get()) / 100
+            sheet['D3'] = jaarlijks_intrest
+            sheet['D3'].number_format = numbers.FORMAT_PERCENTAGE_00
+            
+            nalatigheidsintrest = float(nalatigheidsintrest_var.get()) / 100
+            sheet['D4'] = nalatigheidsintrest
+            sheet['D4'].number_format = numbers.FORMAT_PERCENTAGE_00
+            
+            date_str = begindatum_var.get()
+            try:
+                date_obj = datetime.strptime(date_str, "%d/%m/%Y").date()
+                sheet['B10'] = date_obj
+                sheet['B10'].number_format = 'dd/mm/yyyy'
+            except ValueError:
+                messagebox.showerror("Date Error", "Please enter date in DD/MM/YYYY format")
+                return
+
+        except ValueError as e:
+            messagebox.showerror("Input Error", f"Please enter valid numbers: {str(e)}")
+            return
+
+        save_path = filedialog.asksaveasfilename(
+            defaultextension=".xlsx",
+            filetypes=[("Excel files", "*.xlsx")],
+            title="Save Filled Excel As"
+        )
+        if save_path:
+            workbook.save(save_path)
+            messagebox.showinfo("Success", "Excel file saved successfully!")
+    except Exception as e:
+        messagebox.showerror("Error", f"An error occurred: {str(e)}")
+
+# Set up the GUI
+root = tk.Tk()
+root.title("Aflossingstabel Tool")
+
+# Main frame
+main_frame = tk.Frame(root, padx=20, pady=20)
+main_frame.pack()
+
+# Title
+tk.Label(main_frame, text="Aflossingstabel Tool", font=("Arial", 16, "bold")).grid(row=0, column=0, columnspan=2, pady=(0, 20))
+
+# Excel Template section
+tk.Label(main_frame, text="Excel Template", font=("Arial", 12)).grid(row=1, column=0, columnspan=2, sticky="w", pady=(10, 5))
+
+# Template selection buttons
+button_frame = tk.Frame(main_frame)
+button_frame.grid(row=2, column=0, columnspan=2, pady=5)
+
+select_button = tk.Button(button_frame, text="Select Template", command=load_template)
+select_button.pack(side="left", padx=5)
+
+clear_button = tk.Button(button_frame, text="Clear", command=clear_template)
+clear_button.pack(side="left", padx=5)
+
+# Template status label
+template_label = tk.Label(main_frame, text="No template selected", fg="gray")
+template_label.grid(row=3, column=0, columnspan=2, pady=(0, 20))
+
+# Input fields - Text type
+tk.Label(main_frame, text="Naam bedrijf:").grid(row=4, column=0, sticky="e", padx=5, pady=5)
+naam_var = tk.StringVar()
+tk.Entry(main_frame, textvariable=naam_var).grid(row=4, column=1, sticky="ew", pady=5)
+
+tk.Label(main_frame, text="Kredietverstrekker:").grid(row=5, column=0, sticky="e", padx=5, pady=5)
+verstrekker_var = tk.StringVar()
+tk.Entry(main_frame, textvariable=verstrekker_var).grid(row=5, column=1, sticky="ew", pady=5)
+
+tk.Label(main_frame, text="Type:").grid(row=7, column=0, sticky="e", padx=5, pady=5)
+type_var = tk.StringVar()
+type_var.set("Klimoplening")  # default value
+type_dropdown = tk.OptionMenu(main_frame, type_var, "Klimoplening", "Pluslening", "Coronalening", "Doorbraaklening", "Maatwerklening", "Mezzanine")
+type_dropdown.grid(row=7, column=1, sticky="ew", pady=5)
+
+# Input fields - Numeric type
+tk.Label(main_frame, text="Toegestaan krediet:").grid(row=6, column=0, sticky="e", padx=5, pady=5)
+krediet_var = tk.StringVar()
+tk.Entry(main_frame, textvariable=krediet_var).grid(row=6, column=1, sticky="ew", pady=5)
+
+tk.Label(main_frame, text="Respijtperiode:").grid(row=8, column=0, sticky="e", padx=5, pady=5)
+respijtperiode_var = tk.StringVar()
+tk.Entry(main_frame, textvariable=respijtperiode_var).grid(row=8, column=1, sticky="ew", pady=5)
+
+tk.Label(main_frame, text="ID:").grid(row=11, column=0, sticky="e", padx=5, pady=5)
+id_var = tk.StringVar()
+id_var.set("1")  # default value
+tk.Entry(main_frame, textvariable=id_var).grid(row=11, column=1, sticky="ew", pady=5)
+
+tk.Label(main_frame, text="Code:").grid(row=12, column=0, sticky="e", padx=5, pady=5)
+code_var = tk.StringVar()
+tk.Entry(main_frame, textvariable=code_var).grid(row=12, column=1, sticky="ew", pady=5)
+
+tk.Label(main_frame, text="Betalingsvoorwaarde:").grid(row=13, column=0, sticky="e", padx=5, pady=5)
+betalingsvoorwaarde_var = tk.StringVar()
+betalingsvoorwaarde_var.set("1")  # default value
+tk.Entry(main_frame, textvariable=betalingsvoorwaarde_var).grid(row=13, column=1, sticky="ew", pady=5)
+
+# Input fields - Percentage type
+tk.Label(main_frame, text="Jaarlijks intrestpercentage (%):").grid(row=9, column=0, sticky="e", padx=5, pady=5)
+jaarlijks_intrest_var = tk.StringVar()
+jaarlijks_intrest_var.set("0.0")  # default value
+tk.Entry(main_frame, textvariable=jaarlijks_intrest_var).grid(row=9, column=1, sticky="ew", pady=5)
+
+tk.Label(main_frame, text="Nalatigheidsintrest (%):").grid(row=10, column=0, sticky="e", padx=5, pady=5)
+nalatigheidsintrest_var = tk.StringVar()
+nalatigheidsintrest_var.set("0.0")  # default value
+tk.Entry(main_frame, textvariable=nalatigheidsintrest_var).grid(row=10, column=1, sticky="ew", pady=5)
+
+# Input field - Date (kept as text for flexibility)
+tk.Label(main_frame, text="Begindatum (DD-MM-YYYY):").grid(row=14, column=0, sticky="e", padx=5, pady=5)
+begindatum_var = tk.StringVar()
+tk.Entry(main_frame, textvariable=begindatum_var).grid(row=14, column=1, sticky="ew", pady=5)
+
+# Fill and save button
+tk.Button(main_frame, text="Fill and Save Excel", command=fill_excel).grid(row=15, column=0, columnspan=2, pady=20)
+
+# Initialize template path
+template_path = None
+
+root.mainloop()
