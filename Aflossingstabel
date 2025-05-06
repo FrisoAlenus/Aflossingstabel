@@ -2,9 +2,18 @@ import tkinter as tk
 from tkinter import filedialog, messagebox
 from openpyxl import load_workbook
 from openpyxl.styles import numbers
-from datetime import datetime
+from datetime import datetime, date # Import date specifically or use datetime.date
+import os
+import traceback
 
+# --- Configuration ---
+# NOTE: START_ROW_FOR_PERIODS is now determined dynamically within fill_excel()
+TARGET_SHEET_NAME = None
+# --- End Configuration ---
+
+# --- GUI Functions ---
 def load_template():
+    """Opens a dialog to select the Excel template file."""
     global template_path
     filepath = filedialog.askopenfilename(
         title="Select Excel Template",
@@ -12,153 +21,250 @@ def load_template():
     )
     if filepath:
         template_path = filepath
-        template_label.config(text=f"Selected: {filepath.split('/')[-1]}")
-    return filepath
+        template_label.config(text=f"Selected: {os.path.basename(filepath)}")
 
 def clear_template():
+    """Clears the selected template path and updates the label."""
     global template_path
     template_path = None
     template_label.config(text="No template selected")
 
+# --- Core Logic ---
 def fill_excel():
+    """Fills the selected Excel template with GUI data, removes excess rows, and saves."""
     if not template_path:
         messagebox.showerror("Error", "Please select an Excel template first!")
         return
 
+    workbook = None
     try:
-        workbook = load_workbook(template_path)
-        sheet = workbook.active
+        # --- Get and Validate User Inputs ---
+        selected_type = type_var.get()
+        aantal_perioden_str = aantal_perioden_var.get()
 
-        # Fill in the data
-        sheet['B2'] = naam_var.get()
-        sheet['B3'] = verstrekker_var.get()
-        sheet['B6'] = type_var.get()
-        
+        if not aantal_perioden_str:
+             messagebox.showerror("Input Error", "Please enter the 'Aantal interestperioden'.")
+             return
         try:
-            sheet['B4'] = int(krediet_var.get())
-            sheet['B5'] = int(respijtperiode_var.get())
-            sheet['B7'] = int(id_var.get())
-            sheet['B8'] = int(code_var.get())
-            sheet['B9'] = int(betalingsvoorwaarde_var.get())
-            
-            jaarlijks_intrest = float(jaarlijks_intrest_var.get()) / 100
-            sheet['D3'] = jaarlijks_intrest
-            sheet['D3'].number_format = numbers.FORMAT_PERCENTAGE_00
-            
-            nalatigheidsintrest = float(nalatigheidsintrest_var.get()) / 100
-            sheet['D4'] = nalatigheidsintrest
-            sheet['D4'].number_format = numbers.FORMAT_PERCENTAGE_00
-            
-            date_str = begindatum_var.get()
-            try:
-                date_obj = datetime.strptime(date_str, "%d/%m/%Y").date()
-                sheet['B10'] = date_obj
-                sheet['B10'].number_format = 'dd/mm/yyyy'
-            except ValueError:
-                messagebox.showerror("Date Error", "Please enter date in DD/MM/YYYY format")
-                return
-
-        except ValueError as e:
-            messagebox.showerror("Input Error", f"Please enter valid numbers: {str(e)}")
+            max_perioden = int(aantal_perioden_str)
+            if max_perioden < 0:
+                raise ValueError("Number of periods cannot be negative.")
+        except ValueError:
+            messagebox.showerror("Input Error", "Please enter a valid whole number for 'Aantal interestperioden'.")
             return
 
+        # --- Determine Effective Start Row based on Type ---
+        if selected_type == "Mezzanine":
+            effective_start_row = 15
+            print(f"Loan Type is 'Mezzanine'. Using effective start row: {effective_start_row}")
+        else:
+            effective_start_row = 16 # Default for other types
+            print(f"Loan Type is '{selected_type}'. Using effective start row: {effective_start_row}")
+
+        # --- Load Workbook ---
+        print(f"Loading workbook: {template_path}")
+        workbook = load_workbook(template_path)
+        print("Workbook loaded (formulas preserved).")
+
+        # --- Select Target Sheet ---
+        if TARGET_SHEET_NAME:
+            if TARGET_SHEET_NAME in workbook.sheetnames:
+                sheet = workbook[TARGET_SHEET_NAME]
+                print(f"Using specified sheet: '{TARGET_SHEET_NAME}'")
+            else:
+                messagebox.showerror("Sheet Error", f"Sheet '{TARGET_SHEET_NAME}' not found in the template.")
+                workbook.close()
+                return
+        else:
+            sheet = workbook.active
+            print(f"Using active sheet: '{sheet.title}'")
+
+        # --- Fill Standard Data Cells ---
+        print("Filling standard data cells...")
+        sheet['B3'] = verstrekker_var.get()
+        sheet['B2'] = naam_var.get()
+        sheet['B6'] = selected_type
+        try:
+            sheet['B4'] = int(krediet_var.get()) if krediet_var.get() else None
+            sheet['B5'] = int(respijtperiode_var.get()) if respijtperiode_var.get() else None
+            sheet['B7'] = int(id_var.get()) if id_var.get() else None
+            sheet['B8'] = int(code_var.get()) if code_var.get() else None
+            sheet['B9'] = int(betalingsvoorwaarde_var.get()) if betalingsvoorwaarde_var.get() else None
+            if jaarlijks_intrest_var.get():
+                jaarlijks_intrest = float(jaarlijks_intrest_var.get()) / 100
+                sheet['D3'] = jaarlijks_intrest
+                sheet['D3'].number_format = numbers.FORMAT_PERCENTAGE_00
+            else: sheet['D3'] = None
+            if nalatigheidsintrest_var.get():
+                nalatigheidsintrest = float(nalatigheidsintrest_var.get()) / 100
+                sheet['D4'] = nalatigheidsintrest
+                sheet['D4'].number_format = numbers.FORMAT_PERCENTAGE_00
+            else: sheet['D4'] = None
+
+            # Get date string from input var (which now has today's date as default)
+            date_str = begindatum_var.get()
+            if date_str:
+                try:
+                    # Parse the string using the expected format
+                    date_obj = datetime.strptime(date_str, "%d/%m/%Y").date()
+                    # Write the date object to Excel (Excel handles date types well)
+                    sheet['B10'] = date_obj
+                    # Ensure Excel cell format is set (though writing date object often suffices)
+                    sheet['B10'].number_format = 'dd/mm/yyyy'
+                except ValueError:
+                    # Handle cases where the user might manually enter an invalid format
+                    messagebox.showerror("Date Error", f"Invalid date format for '{date_str}'. Please use DD/MM/YYYY.")
+                    workbook.close()
+                    return
+            else:
+                sheet['B10'] = None # Handle empty date if user clears it
+
+        except ValueError as e:
+            messagebox.showerror("Input Error", f"Please enter valid numbers for numeric fields (like Krediet, ID, etc.).\nError: {str(e)}")
+            workbook.close()
+            return
+        print("Standard data filled.")
+
+        # --- Determine the Starting Period Value ---
+        first_period_value = 1
+        try:
+            first_period_cell_ref = f'P{effective_start_row}'
+            first_period_cell = sheet[first_period_cell_ref]
+            if isinstance(first_period_cell.value, (int, float)):
+                first_period_value = int(first_period_cell.value)
+                print(f"Detected starting period value from cell {first_period_cell_ref}: {first_period_value}")
+            else:
+                 print(f"Could not read numeric value from starting period cell {first_period_cell_ref} (Value: '{first_period_cell.value}', Type: {type(first_period_cell.value)}). Assuming starting period is 1 for calculation.")
+        except Exception as e:
+             print(f"Error reading starting period cell {first_period_cell_ref}. Assuming 1 for calculation. Error: {e}")
+
+        # --- Delete Excessive Rows ---
+        print(f"Checking rows starting from {effective_start_row} up to row {sheet.max_row - 1}.")
+        print(f"The very last row ({sheet.max_row}) will be skipped.")
+        print(f"Deleting rows where *calculated* Period > {max_perioden} (based on starting value {first_period_value} from row {effective_start_row})")
+        rows_deleted_count = 0
+        for row_num in range(sheet.max_row - 1, effective_start_row - 1, -1):
+            current_period_calculated = first_period_value + (row_num - effective_start_row)
+            if current_period_calculated > max_perioden:
+                sheet.delete_rows(row_num)
+                rows_deleted_count += 1
+            # else:
+            #    break
+        print(f"Finished checking rows. Deleted {rows_deleted_count} rows based on calculated periods.")
+
+        # --- Save the Modified Workbook ---
+        suggested_filename = f"{naam_var.get() or 'Bedrijf'}_{selected_type}_Aflossingstabel.xlsx"
+        suggested_filename = "".join(c for c in suggested_filename if c.isalnum() or c in (' ', '.', '_', '-')).rstrip()
         save_path = filedialog.asksaveasfilename(
             defaultextension=".xlsx",
             filetypes=[("Excel files", "*.xlsx")],
-            title="Save Filled Excel As"
+            title="Save Filled Excel As",
+            initialfile=suggested_filename
         )
         if save_path:
-            workbook.save(save_path)
-            messagebox.showinfo("Success", "Excel file saved successfully!")
-    except Exception as e:
-        messagebox.showerror("Error", f"An error occurred: {str(e)}")
+            try:
+                workbook.save(save_path)
+                print(f"Workbook saved successfully to: {save_path}")
+                messagebox.showinfo("Success", f"Excel file saved successfully!\n{rows_deleted_count} excessive period rows deleted.\nFormulas preserved.")
+            except Exception as save_error:
+                 print(f"Error saving workbook: {save_error}")
+                 messagebox.showerror("Save Error", f"Could not save the file. It might be open elsewhere or permission denied.\nError: {save_error}")
+        else:
+            print("Save cancelled by user.")
 
-# Set up the GUI
+    except Exception as e:
+        messagebox.showerror("Error", f"An unexpected error occurred during processing:\n{str(e)}")
+        print("--- UNEXPECTED ERROR ---")
+        traceback.print_exc()
+        print("--- END ERROR ---")
+    finally:
+        if workbook:
+            try:
+                workbook.close()
+                print("Workbook closed.")
+            except Exception as close_error:
+                print(f"Error closing workbook in finally block: {close_error}")
+
+# =============================================================================
+# Set up the GUI (Graphical User Interface)
+# =============================================================================
 root = tk.Tk()
 root.title("Aflossingstabel Tool")
-
-# Main frame
 main_frame = tk.Frame(root, padx=20, pady=20)
-main_frame.pack()
-
-# Title
+main_frame.pack(fill="both", expand=True)
 tk.Label(main_frame, text="Aflossingstabel Tool", font=("Arial", 16, "bold")).grid(row=0, column=0, columnspan=2, pady=(0, 20))
-
-# Excel Template section
 tk.Label(main_frame, text="Excel Template", font=("Arial", 12)).grid(row=1, column=0, columnspan=2, sticky="w", pady=(10, 5))
-
-# Template selection buttons
 button_frame = tk.Frame(main_frame)
-button_frame.grid(row=2, column=0, columnspan=2, pady=5)
-
+button_frame.grid(row=2, column=0, columnspan=2, pady=5, sticky="w")
 select_button = tk.Button(button_frame, text="Select Template", command=load_template)
 select_button.pack(side="left", padx=5)
-
 clear_button = tk.Button(button_frame, text="Clear", command=clear_template)
 clear_button.pack(side="left", padx=5)
+template_label = tk.Label(main_frame, text="No template selected", fg="gray", wraplength=400, justify="left")
+template_label.grid(row=3, column=0, columnspan=2, pady=(0, 20), sticky="w")
+current_row = 4
+def add_input_row(label_text, variable):
+    global current_row
+    tk.Label(main_frame, text=label_text).grid(row=current_row, column=0, sticky="e", padx=5, pady=2)
+    entry = tk.Entry(main_frame, textvariable=variable)
+    entry.grid(row=current_row, column=1, sticky="ew", pady=2)
+    current_row += 1
+    return entry
 
-# Template status label
-template_label = tk.Label(main_frame, text="No template selected", fg="gray")
-template_label.grid(row=3, column=0, columnspan=2, pady=(0, 20))
-
-# Input fields - Text type
-tk.Label(main_frame, text="Naam bedrijf:").grid(row=4, column=0, sticky="e", padx=5, pady=5)
+# Define StringVars for inputs
 naam_var = tk.StringVar()
-tk.Entry(main_frame, textvariable=naam_var).grid(row=4, column=1, sticky="ew", pady=5)
-
-tk.Label(main_frame, text="Kredietverstrekker:").grid(row=5, column=0, sticky="e", padx=5, pady=5)
 verstrekker_var = tk.StringVar()
-tk.Entry(main_frame, textvariable=verstrekker_var).grid(row=5, column=1, sticky="ew", pady=5)
-
-tk.Label(main_frame, text="Type:").grid(row=7, column=0, sticky="e", padx=5, pady=5)
 type_var = tk.StringVar()
-type_var.set("Klimoplening")  # default value
-type_dropdown = tk.OptionMenu(main_frame, type_var, "Klimoplening", "Pluslening", "Coronalening", "Doorbraaklening", "Maatwerklening", "Mezzanine")
-type_dropdown.grid(row=7, column=1, sticky="ew", pady=5)
-
-# Input fields - Numeric type
-tk.Label(main_frame, text="Toegestaan krediet:").grid(row=6, column=0, sticky="e", padx=5, pady=5)
+type_var.set("Klimoplening")
 krediet_var = tk.StringVar()
-tk.Entry(main_frame, textvariable=krediet_var).grid(row=6, column=1, sticky="ew", pady=5)
+respijtperiode_var = tk.StringVar(value="0")
+jaarlijks_intrest_var = tk.StringVar(value="0.0")
+nalatigheidsintrest_var = tk.StringVar(value="0.0")
+id_var = tk.StringVar(value="1")
+code_var = tk.StringVar(value="0")
+betalingsvoorwaarde_var = tk.StringVar(value="1")
+aantal_perioden_var = tk.StringVar(value="84")
 
-tk.Label(main_frame, text="Respijtperiode:").grid(row=8, column=0, sticky="e", padx=5, pady=5)
-respijtperiode_var = tk.StringVar()
-tk.Entry(main_frame, textvariable=respijtperiode_var).grid(row=8, column=1, sticky="ew", pady=5)
-
-tk.Label(main_frame, text="ID:").grid(row=11, column=0, sticky="e", padx=5, pady=5)
-id_var = tk.StringVar()
-id_var.set("1")  # default value
-tk.Entry(main_frame, textvariable=id_var).grid(row=11, column=1, sticky="ew", pady=5)
-
-tk.Label(main_frame, text="Code:").grid(row=12, column=0, sticky="e", padx=5, pady=5)
-code_var = tk.StringVar()
-tk.Entry(main_frame, textvariable=code_var).grid(row=12, column=1, sticky="ew", pady=5)
-
-tk.Label(main_frame, text="Betalingsvoorwaarde:").grid(row=13, column=0, sticky="e", padx=5, pady=5)
-betalingsvoorwaarde_var = tk.StringVar()
-betalingsvoorwaarde_var.set("1")  # default value
-tk.Entry(main_frame, textvariable=betalingsvoorwaarde_var).grid(row=13, column=1, sticky="ew", pady=5)
-
-# Input fields - Percentage type
-tk.Label(main_frame, text="Jaarlijks intrestpercentage (%):").grid(row=9, column=0, sticky="e", padx=5, pady=5)
-jaarlijks_intrest_var = tk.StringVar()
-jaarlijks_intrest_var.set("0.0")  # default value
-tk.Entry(main_frame, textvariable=jaarlijks_intrest_var).grid(row=9, column=1, sticky="ew", pady=5)
-
-tk.Label(main_frame, text="Nalatigheidsintrest (%):").grid(row=10, column=0, sticky="e", padx=5, pady=5)
-nalatigheidsintrest_var = tk.StringVar()
-nalatigheidsintrest_var.set("0.0")  # default value
-tk.Entry(main_frame, textvariable=nalatigheidsintrest_var).grid(row=10, column=1, sticky="ew", pady=5)
-
-# Input field - Date (kept as text for flexibility)
-tk.Label(main_frame, text="Begindatum (DD-MM-YYYY):").grid(row=14, column=0, sticky="e", padx=5, pady=5)
+# *** START CHANGE: Set default date for Begindatum ***
 begindatum_var = tk.StringVar()
-tk.Entry(main_frame, textvariable=begindatum_var).grid(row=14, column=1, sticky="ew", pady=5)
+try:
+    # Get today's date and format it as DD/MM/YYYY
+    today_str = date.today().strftime("%d/%m/%Y") # Use date from datetime
+    begindatum_var.set(today_str)
+except Exception as e:
+    print(f"Could not set default date: {e}")
+    begindatum_var.set("") # Fallback to empty string if there's an issue
+# *** END CHANGE ***
 
-# Fill and save button
-tk.Button(main_frame, text="Fill and Save Excel", command=fill_excel).grid(row=15, column=0, columnspan=2, pady=20)
+# Add input rows using the helper function where applicable
+add_input_row("Naam bedrijf:", naam_var)
 
-# Initialize template path
+# Kredietverstrekker Dropdown
+tk.Label(main_frame, text="Kredietverstrekker:").grid(row=current_row, column=0, sticky="e", padx=5, pady=2)
+kredietverstrekker_options = ["LRM", "Mijnen"]
+verstrekker_var.set(kredietverstrekker_options[0]) # Default to "LRM"
+verstrekker_dropdown = tk.OptionMenu(main_frame, verstrekker_var, *kredietverstrekker_options)
+verstrekker_dropdown.grid(row=current_row, column=1, sticky="ew", pady=2)
+current_row += 1
+
+# Type OptionMenu (Dropdown)
+tk.Label(main_frame, text="Type:").grid(row=current_row, column=0, sticky="e", padx=5, pady=2)
+type_options = ["Klimoplening", "Pluslening", "Doorbraaklening", "Maatwerklening", "Mezzanine", "Andere"]
+type_dropdown = tk.OptionMenu(main_frame, type_var, *type_options)
+type_dropdown.grid(row=current_row, column=1, sticky="ew", pady=2)
+current_row += 1
+
+# Add remaining input rows
+add_input_row("Toegestaan krediet (€):", krediet_var)
+add_input_row("Respijtperiode (maanden):", respijtperiode_var)
+add_input_row("Jaarlijks intrestpercentage (%):", jaarlijks_intrest_var)
+add_input_row("Nalatigheidsintrest (%):", nalatigheidsintrest_var)
+add_input_row("ID:", id_var)
+add_input_row("Code:", code_var)
+add_input_row("Betalingsvoorwaarde:", betalingsvoorwaarde_var)
+add_input_row("Begindatum (DD/MM/YYYY):", begindatum_var) # Input row for date
+add_input_row("Aantal interestperioden:", aantal_perioden_var)
+main_frame.columnconfigure(1, weight=1)
+tk.Button(main_frame, text="Fill Template, Remove Excess Rows, and Save", command=fill_excel, font=("Arial", 10, "bold")).grid(row=current_row, column=0, columnspan=2, pady=(25, 10))
 template_path = None
-
 root.mainloop()
