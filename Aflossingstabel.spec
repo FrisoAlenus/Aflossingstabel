@@ -2,7 +2,7 @@
 
 
 a = Analysis(
-    ['U:\\Aflossingstabel\\Aflossingstabel'],
+    ['Aflossingstabel'],
     pathex=[],
     binaries=[],
     datas=[],
