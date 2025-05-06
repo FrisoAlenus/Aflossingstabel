@@ -7,8 +7,7 @@ import os
 import traceback
 
 # --- Configuration ---
-# NOTE: START_ROW_FOR_PERIODS is now determined dynamically within fill_excel()
-TARGET_SHEET_NAME = None
+# No global TARGET_SHEET_NAME needed anymore, will use specific sheet names.
 # --- End Configuration ---
 
 # --- GUI Functions ---
@@ -31,7 +30,7 @@ def clear_template():
 
 # --- Core Logic ---
 def fill_excel():
-    """Fills the selected Excel template with GUI data, removes excess rows, and saves."""
+    """Fills the selected Excel template with GUI data, removes excess rows from DATA and FACTUUR sheets, and saves."""
     if not template_path:
         messagebox.showerror("Error", "Please select an Excel template first!")
         return
@@ -53,104 +52,121 @@ def fill_excel():
             messagebox.showerror("Input Error", "Please enter a valid whole number for 'Aantal interestperioden'.")
             return
 
-        # --- Determine Effective Start Row based on Type ---
+        # --- Determine Effective Start Row for "DATA" sheet based on Type ---
         if selected_type == "Mezzanine":
-            effective_start_row = 15
-            print(f"Loan Type is 'Mezzanine'. Using effective start row: {effective_start_row}")
+            effective_start_row_data = 15 # Start row for period data on "DATA" sheet
+            print(f"Loan Type is 'Mezzanine'. Using effective start row for DATA sheet: {effective_start_row_data}")
         else:
-            effective_start_row = 16 # Default for other types
-            print(f"Loan Type is '{selected_type}'. Using effective start row: {effective_start_row}")
+            effective_start_row_data = 16 # Default for other types
+            print(f"Loan Type is '{selected_type}'. Using effective start row for DATA sheet: {effective_start_row_data}")
 
         # --- Load Workbook ---
         print(f"Loading workbook: {template_path}")
         workbook = load_workbook(template_path)
         print("Workbook loaded (formulas preserved).")
 
-        # --- Select Target Sheet ---
-        if TARGET_SHEET_NAME:
-            if TARGET_SHEET_NAME in workbook.sheetnames:
-                sheet = workbook[TARGET_SHEET_NAME]
-                print(f"Using specified sheet: '{TARGET_SHEET_NAME}'")
-            else:
-                messagebox.showerror("Sheet Error", f"Sheet '{TARGET_SHEET_NAME}' not found in the template.")
-                workbook.close()
-                return
-        else:
-            sheet = workbook.active
-            print(f"Using active sheet: '{sheet.title}'")
+        # --- Get Sheet Objects ---
+        data_sheet_name = "DATA"
+        factuur_sheet_name = "FACTUUR"
 
-        # --- Fill Standard Data Cells ---
-        print("Filling standard data cells...")
-        sheet['B3'] = verstrekker_var.get()
-        sheet['B2'] = naam_var.get()
-        sheet['B6'] = selected_type
+        if data_sheet_name not in workbook.sheetnames:
+            messagebox.showerror("Sheet Error", f"Sheet '{data_sheet_name}' not found in the template.")
+            if workbook: workbook.close()
+            return
+        data_sheet = workbook[data_sheet_name]
+        print(f"Successfully accessed sheet: '{data_sheet_name}'")
+
+        if factuur_sheet_name not in workbook.sheetnames:
+            messagebox.showerror("Sheet Error", f"Sheet '{factuur_sheet_name}' not found in the template.")
+            if workbook: workbook.close()
+            return
+        factuur_sheet = workbook[factuur_sheet_name]
+        print(f"Successfully accessed sheet: '{factuur_sheet_name}'")
+
+
+        # --- Fill Standard Data Cells on "DATA" Sheet ---
+        print(f"Filling standard data cells on '{data_sheet_name}' sheet...")
+        data_sheet['B3'] = verstrekker_var.get()
+        data_sheet['B2'] = naam_var.get()
+        data_sheet['B6'] = selected_type
         try:
-            sheet['B4'] = int(krediet_var.get()) if krediet_var.get() else None
-            sheet['B5'] = int(respijtperiode_var.get()) if respijtperiode_var.get() else None
-            sheet['B7'] = int(id_var.get()) if id_var.get() else None
-            sheet['B8'] = int(code_var.get()) if code_var.get() else None
-            sheet['B9'] = int(betalingsvoorwaarde_var.get()) if betalingsvoorwaarde_var.get() else None
+            data_sheet['B4'] = int(krediet_var.get()) if krediet_var.get() else None
+            data_sheet['B5'] = int(respijtperiode_var.get()) if respijtperiode_var.get() else None
+            data_sheet['B7'] = int(id_var.get()) if id_var.get() else None
+            data_sheet['B8'] = int(code_var.get()) if code_var.get() else None
+            data_sheet['B9'] = int(betalingsvoorwaarde_var.get()) if betalingsvoorwaarde_var.get() else None
             if jaarlijks_intrest_var.get():
                 jaarlijks_intrest = float(jaarlijks_intrest_var.get()) / 100
-                sheet['D3'] = jaarlijks_intrest
-                sheet['D3'].number_format = numbers.FORMAT_PERCENTAGE_00
-            else: sheet['D3'] = None
+                data_sheet['D3'] = jaarlijks_intrest
+                data_sheet['D3'].number_format = numbers.FORMAT_PERCENTAGE_00
+            else: data_sheet['D3'] = None
             if nalatigheidsintrest_var.get():
                 nalatigheidsintrest = float(nalatigheidsintrest_var.get()) / 100
-                sheet['D4'] = nalatigheidsintrest
-                sheet['D4'].number_format = numbers.FORMAT_PERCENTAGE_00
-            else: sheet['D4'] = None
+                data_sheet['D4'] = nalatigheidsintrest
+                data_sheet['D4'].number_format = numbers.FORMAT_PERCENTAGE_00
+            else: data_sheet['D4'] = None
 
-            # Get date string from input var (which now has today's date as default)
             date_str = begindatum_var.get()
             if date_str:
                 try:
-                    # Parse the string using the expected format
                     date_obj = datetime.strptime(date_str, "%d/%m/%Y").date()
-                    # Write the date object to Excel (Excel handles date types well)
-                    sheet['B10'] = date_obj
-                    # Ensure Excel cell format is set (though writing date object often suffices)
-                    sheet['B10'].number_format = 'dd/mm/yyyy'
+                    data_sheet['B10'] = date_obj
+                    data_sheet['B10'].number_format = 'dd/mm/yyyy'
                 except ValueError:
-                    # Handle cases where the user might manually enter an invalid format
                     messagebox.showerror("Date Error", f"Invalid date format for '{date_str}'. Please use DD/MM/YYYY.")
-                    workbook.close()
+                    if workbook: workbook.close()
                     return
             else:
-                sheet['B10'] = None # Handle empty date if user clears it
+                data_sheet['B10'] = None
 
         except ValueError as e:
             messagebox.showerror("Input Error", f"Please enter valid numbers for numeric fields (like Krediet, ID, etc.).\nError: {str(e)}")
-            workbook.close()
+            if workbook: workbook.close()
             return
-        print("Standard data filled.")
+        print(f"Standard data filled on '{data_sheet_name}' sheet.")
 
-        # --- Determine the Starting Period Value ---
-        first_period_value = 1
+        # --- Determine the Starting Period Value on "DATA" Sheet ---
+        first_period_value_data = 1
         try:
-            first_period_cell_ref = f'P{effective_start_row}'
-            first_period_cell = sheet[first_period_cell_ref]
+            first_period_cell_ref = f'P{effective_start_row_data}'
+            first_period_cell = data_sheet[first_period_cell_ref]
             if isinstance(first_period_cell.value, (int, float)):
-                first_period_value = int(first_period_cell.value)
-                print(f"Detected starting period value from cell {first_period_cell_ref}: {first_period_value}")
+                first_period_value_data = int(first_period_cell.value)
+                print(f"Detected starting period value on '{data_sheet_name}' from cell {first_period_cell_ref}: {first_period_value_data}")
             else:
-                 print(f"Could not read numeric value from starting period cell {first_period_cell_ref} (Value: '{first_period_cell.value}', Type: {type(first_period_cell.value)}). Assuming starting period is 1 for calculation.")
+                 print(f"Could not read numeric value from starting period cell {first_period_cell_ref} on '{data_sheet_name}'. Assuming 1.")
         except Exception as e:
-             print(f"Error reading starting period cell {first_period_cell_ref}. Assuming 1 for calculation. Error: {e}")
+             print(f"Error reading starting period cell {first_period_cell_ref} on '{data_sheet_name}'. Assuming 1. Error: {e}")
 
-        # --- Delete Excessive Rows ---
-        print(f"Checking rows starting from {effective_start_row} up to row {sheet.max_row - 1}.")
-        print(f"The very last row ({sheet.max_row}) will be skipped.")
-        print(f"Deleting rows where *calculated* Period > {max_perioden} (based on starting value {first_period_value} from row {effective_start_row})")
-        rows_deleted_count = 0
-        for row_num in range(sheet.max_row - 1, effective_start_row - 1, -1):
-            current_period_calculated = first_period_value + (row_num - effective_start_row)
+        # --- Delete Excessive Rows on "DATA" Sheet ---
+        print(f"Checking rows on '{data_sheet_name}' starting from {effective_start_row_data} up to row {data_sheet.max_row - 1}.")
+        print(f"The very last row ({data_sheet.max_row}) on '{data_sheet_name}' will be skipped during this period check.")
+        print(f"Deleting rows on '{data_sheet_name}' where *calculated* Period > {max_perioden} (based on starting value {first_period_value_data} from row {effective_start_row_data})")
+        rows_deleted_from_data_count = 0
+        # Iterate backwards from the second-to-last row down to effective_start_row_data
+        for row_num in range(data_sheet.max_row - 1, effective_start_row_data - 1, -1):
+            current_period_calculated = first_period_value_data + (row_num - effective_start_row_data)
             if current_period_calculated > max_perioden:
-                sheet.delete_rows(row_num)
-                rows_deleted_count += 1
-            # else:
-            #    break
-        print(f"Finished checking rows. Deleted {rows_deleted_count} rows based on calculated periods.")
+                data_sheet.delete_rows(row_num)
+                rows_deleted_from_data_count += 1
+        print(f"Finished checking rows on '{data_sheet_name}'. Deleted {rows_deleted_from_data_count} rows.")
+
+        # --- Delete Corresponding Rows on "FACTUUR" Sheet ---
+        if rows_deleted_from_data_count > 0:
+            print(f"Attempting to delete {rows_deleted_from_data_count} rows from the end of '{factuur_sheet_name}' sheet (including its current last row)...")
+            for i in range(rows_deleted_from_data_count):
+                if factuur_sheet.max_row > 0: # Ensure there's at least one row to delete
+                    # *** CHANGE HERE: Delete the actual current last row ***
+                    row_to_delete_on_factuur = factuur_sheet.max_row
+                    print(f"Deleting row {row_to_delete_on_factuur} (current last row) from '{factuur_sheet_name}' - Iteration {i+1}/{rows_deleted_from_data_count}")
+                    factuur_sheet.delete_rows(row_to_delete_on_factuur)
+                else:
+                    print(f"No more rows to delete on '{factuur_sheet_name}'. Stopped after deleting {i} rows.")
+                    break # Exit loop if sheet becomes empty
+            print(f"Finished deleting rows from '{factuur_sheet_name}'.")
+        else:
+            print(f"No rows were deleted from '{data_sheet_name}', so no changes made to '{factuur_sheet_name}'.")
+
 
         # --- Save the Modified Workbook ---
         suggested_filename = f"{naam_var.get() or 'Bedrijf'}_{selected_type}_Aflossingstabel.xlsx"
@@ -165,7 +181,7 @@ def fill_excel():
             try:
                 workbook.save(save_path)
                 print(f"Workbook saved successfully to: {save_path}")
-                messagebox.showinfo("Success", f"Excel file saved successfully!\n{rows_deleted_count} excessive period rows deleted.\nFormulas preserved.")
+                messagebox.showinfo("Success", f"Excel file saved successfully!\n{rows_deleted_from_data_count} period rows deleted from DATA and corresponding rows from FACTUUR.\nFormulas preserved.")
             except Exception as save_error:
                  print(f"Error saving workbook: {save_error}")
                  messagebox.showerror("Save Error", f"Could not save the file. It might be open elsewhere or permission denied.\nError: {save_error}")
@@ -186,7 +202,7 @@ def fill_excel():
                 print(f"Error closing workbook in finally block: {close_error}")
 
 # =============================================================================
-# Set up the GUI (Graphical User Interface)
+# Set up the GUI (Graphical User Interface) - No changes from your last version
 # =============================================================================
 root = tk.Tk()
 root.title("Aflossingstabel Tool")
@@ -210,8 +226,6 @@ def add_input_row(label_text, variable):
     entry.grid(row=current_row, column=1, sticky="ew", pady=2)
     current_row += 1
     return entry
-
-# Define StringVars for inputs
 naam_var = tk.StringVar()
 verstrekker_var = tk.StringVar()
 type_var = tk.StringVar()
@@ -224,37 +238,25 @@ id_var = tk.StringVar(value="1")
 code_var = tk.StringVar(value="0")
 betalingsvoorwaarde_var = tk.StringVar(value="1")
 aantal_perioden_var = tk.StringVar(value="84")
-
-# *** START CHANGE: Set default date for Begindatum ***
 begindatum_var = tk.StringVar()
 try:
-    # Get today's date and format it as DD/MM/YYYY
-    today_str = date.today().strftime("%d/%m/%Y") # Use date from datetime
+    today_str = date.today().strftime("%d/%m/%Y")
     begindatum_var.set(today_str)
 except Exception as e:
     print(f"Could not set default date: {e}")
-    begindatum_var.set("") # Fallback to empty string if there's an issue
-# *** END CHANGE ***
-
-# Add input rows using the helper function where applicable
+    begindatum_var.set("")
 add_input_row("Naam bedrijf:", naam_var)
-
-# Kredietverstrekker Dropdown
 tk.Label(main_frame, text="Kredietverstrekker:").grid(row=current_row, column=0, sticky="e", padx=5, pady=2)
 kredietverstrekker_options = ["LRM", "Mijnen"]
-verstrekker_var.set(kredietverstrekker_options[0]) # Default to "LRM"
+verstrekker_var.set(kredietverstrekker_options[0])
 verstrekker_dropdown = tk.OptionMenu(main_frame, verstrekker_var, *kredietverstrekker_options)
 verstrekker_dropdown.grid(row=current_row, column=1, sticky="ew", pady=2)
 current_row += 1
-
-# Type OptionMenu (Dropdown)
 tk.Label(main_frame, text="Type:").grid(row=current_row, column=0, sticky="e", padx=5, pady=2)
 type_options = ["Klimoplening", "Pluslening", "Doorbraaklening", "Maatwerklening", "Mezzanine", "Andere"]
 type_dropdown = tk.OptionMenu(main_frame, type_var, *type_options)
 type_dropdown.grid(row=current_row, column=1, sticky="ew", pady=2)
 current_row += 1
-
-# Add remaining input rows
 add_input_row("Toegestaan krediet (€):", krediet_var)
 add_input_row("Respijtperiode (maanden):", respijtperiode_var)
 add_input_row("Jaarlijks intrestpercentage (%):", jaarlijks_intrest_var)
@@ -262,7 +264,7 @@ add_input_row("Nalatigheidsintrest (%):", nalatigheidsintrest_var)
 add_input_row("ID:", id_var)
 add_input_row("Code:", code_var)
 add_input_row("Betalingsvoorwaarde:", betalingsvoorwaarde_var)
-add_input_row("Begindatum (DD/MM/YYYY):", begindatum_var) # Input row for date
+add_input_row("Begindatum (DD/MM/YYYY):", begindatum_var)
 add_input_row("Aantal interestperioden:", aantal_perioden_var)
 main_frame.columnconfigure(1, weight=1)
 tk.Button(main_frame, text="Fill Template, Remove Excess Rows, and Save", command=fill_excel, font=("Arial", 10, "bold")).grid(row=current_row, column=0, columnspan=2, pady=(25, 10))
